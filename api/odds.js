@@ -1,5 +1,5 @@
 export default async function handler(req, res) {
-  // 1. 處理 CORS 標頭及 OPTIONS Preflight 請求
+  // 設定跨域存取 CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -9,13 +9,9 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // 2. 動態提取與驗證參數 (提供預設值)
-  const todayStr = new Date().toISOString().split('T')[0]; // 例如 "2026-10-01"
-  const date = req.query.date || todayStr;
+  const raceNo = parseInt(req.query.race || '1', 10);
+  const date = req.query.date || new Date().toISOString().split('T')[0];
   const venue = (req.query.venue || 'ST').toUpperCase();
-  
-  let raceNo = parseInt(req.query.race || '1', 10);
-  if (isNaN(raceNo) || raceNo < 1) raceNo = 1;
 
   const payload = {
     operationName: "getRaceOdds",
@@ -33,7 +29,7 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1',
         'Referer': 'https://bet.hkjc.com/racing/',
         'Origin': 'https://bet.hkjc.com',
         'Accept': 'application/json, text/plain, */*'
@@ -42,56 +38,15 @@ export default async function handler(req, res) {
     });
 
     const text = await r.text();
-
-    // 檢查 HTTP Response 是否成功
-    if (!r.ok) {
-      return res.status(200).json({
-        OUT: { WIN: [], QIN: [] },
-        status: 'HTTP_ERROR',
-        httpCode: r.status,
-        preview: text.slice(0, 400),
-        source: 'graphql-' + venue
-      });
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      return res.status(200).json({ error: "馬會傳回非 JSON 格式", preview: text.slice(0, 100) });
     }
 
-    let j;
-    try { 
-      j = JSON.parse(text); 
-    } catch (err) {
-      return res.status(200).json({
-        OUT: { WIN: [], QIN: [] },
-        len: text.length,
-        preview: text.slice(0, 400),
-        note: 'HKJC returns non-JSON format (possibly block or night close page)',
-        source: 'graphql-' + venue
-      });
-    }
-
-    const pools = j?.data?.raceMeeting?.race?.pools || [];
-    const winPool = pools.find(p => p.oddsType === 'WIN');
-    const wins = (winPool?.oddsNodes || []).map(o => ({
-      no: parseInt(o.horseNo, 10),
-      win: parseFloat(o.odds)
-    }));
-
-    return res.status(200).json({
-      OUT: {
-        WIN: wins,
-        QIN: pools.find(p => p.oddsType === 'QIN')?.oddsNodes || []
-      },
-      status: 'OK',
-      raceNo: raceNo,
-      venue: venue,
-      date: date,
-      len: text.length,
-      source: 'bet.hkjc.com/racing/api/graphql',
-      time: new Date().toISOString()
-    });
-
+    return res.status(200).json(json);
   } catch (e) {
-    return res.status(200).json({
-      OUT: { WIN: [], QIN: [] },
-      error: e.message
-    });
+    return res.status(200).json({ error: e.message });
   }
 }
